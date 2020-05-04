@@ -15,7 +15,7 @@ require 'qero-packages/autoload.php';
 
 [Что такое Qero?](https://github.com/KRypt0nn/Qero)
 
-<center>или</center>
+<p align="center">или</p>
 
 Скачайте файл `ModuleParser.php` и подключите его к проекту с помощью *require*
 
