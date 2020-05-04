@@ -82,7 +82,7 @@ class ModuleParser
      * 
      * @return array - возвращает массив Item'ов
      */
-    public static function parse ($code): array
+    public static function parse ($code)
     {
         # Читаем содержимое файла если передан путь на него
         if (file_exists ($code))
