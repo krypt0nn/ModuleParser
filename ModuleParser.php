@@ -204,7 +204,7 @@ class ModuleParser
                             $item = end ($items_stack);
                             
                             $item->type  = 'function';
-                            $item->begin = $i;
+                            $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = $name;
                             $item->description = trim (implode (' ', $keywords_stack) .' function '. $name .' '. $args);
 
@@ -225,10 +225,15 @@ class ModuleParser
                             {
                                 $item->end = $func_end;
 
+                                # Если у структуры есть ключевые слова - смещаем её начало к началу ключевых слов
+                                if (sizeof ($keywords_stack) > 0)
+                                    $item->begin = $keywords_begin;
+
                                 $items[] = $item;
                                 array_pop ($items_stack);
 
                                 $item = end ($items_stack);
+                                $keywords_stack = array ();
                             }
                         }
 
@@ -240,7 +245,7 @@ class ModuleParser
                             $item = end ($items_stack);
                             
                             $item->type  = 'lambda_function';
-                            $item->begin = $i;
+                            $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = '<lambda function @ '. $item->begin .'>'; // В качестве имени я использую конструкцию <lambda ... @ начало структуры>
                             $item->description = 'function '. $args;
                         }
@@ -269,7 +274,7 @@ class ModuleParser
                             $item = end ($items_stack);
 
                             $item->type  = 'class';
-                            $item->begin = $i;
+                            $item->begin = $i - 5; // В строчке с поиском $name мы увеличили $i на 5
                             $item->description = trim (implode (' ', $keywords_stack) .' class '. $name);
                             
                             /**
@@ -292,7 +297,7 @@ class ModuleParser
                             $item = end ($items_stack);
 
                             $item->type  = 'lambda_class';
-                            $item->begin = $i;
+                            $item->begin = $i - 5; // В строчке с поиском $name мы увеличили $i на 5
                             $item->name  = '<lambda class @ '. $item->begin .'>';
                             $item->description = 'new class';
                         }
