@@ -40,6 +40,7 @@ namespace ModuleParser;
  * @var int $end            - индекс конца структуры (закрывающая фигурная скобка или точка с запятой в абстрактных функциях)
  * 
  * [@var array $subitems = array ()] - вложенные в структуру элементы (для классов - функции, для функций - анонимные функции и т.п.)
+ * [@var array $keywords = array ()] - ключевые слова, предшествующие данной структуре (public function ... - array (public))
  * [@var int $points = 0]            - системная переменная. Не используется на практике
  */
 final class Item
@@ -50,6 +51,7 @@ final class Item
     public $begin;
     public $end;
     public $subitems = array ();
+    public $keywords = array ();
 
     public $points = 0;
 }
@@ -148,7 +150,7 @@ class ModuleParser
 
                     $token = trim (trim (substr ($code, $i, strpos ($code, "\n", $i) - $i)), '\'');
                     
-                    $i = strpos ($code, "\n$token;", $i);
+                    $i = strpos ($code, "\n$token;", $i) + strlen ($token);
                 }
 
                 # Если найден { - увеличиваем счётчик points текущего Item на 1
@@ -235,7 +237,8 @@ class ModuleParser
                             $use_begin = strpos ($code, '(', $use_begin);
                             $use_end   = strpos ($code, ')', $use_begin);
 
-                            $args .= ' use '. substr ($code, $use_begin, $use_end - $use_begin + 1);
+                            $args 	 .= ' use '. substr ($code, $use_begin, $use_end - $use_begin + 1);
+							$args_end = $use_end;
                         }
 
                         # Если у функции есть имя - она не анонимная
@@ -249,6 +252,7 @@ class ModuleParser
                             $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = $name;
                             $item->description = trim (implode (' ', $keywords_stack) .' function '. $name .' '. $args);
+                            $item->keywords    = $keywords_stack;
 
                             /**
                              * Если после аргументов функции идёт точка с запятой - очевидно, что алгоритм
@@ -263,7 +267,7 @@ class ModuleParser
                              *     public function some_abstract_function ();
                              * }
                              */
-                            if (trim (substr ($code, $args_end += 1, ($func_end = strpos ($code, ';', $args_end)) - $args_end)) == '')
+                            if (($func_end = strpos ($code, ';', $args_end)) !== false && (preg_match ('/^\:[\s]*[a-zA-Z_]{1}[\w]*\z/', $return_type = trim (substr ($code, $args_end += 1, $func_end - $args_end))) || $return_type == ''))
                             {
                                 $item->end = $func_end;
 
@@ -271,12 +275,23 @@ class ModuleParser
                                 if (sizeof ($keywords_stack) > 0)
                                     $item->begin = $keywords_begin;
 
+                                # Если у функции есть возвращаемый тип - дополняем её описание
+                                if ($return_type != '')
+                                    $item->description .= $return_type;
+
                                 $items[] = $item;
                                 array_pop ($items_stack);
 
                                 $item = end ($items_stack);
                                 $keywords_stack = array ();
+
+                                # Переносим указатель на конец функции
+                                $i = $func_end - 1;
                             }
+
+                            # Если это обычная-преобычная функция, но у неё есть возвращаемый тип - дописываем его к описанию
+                            elseif (preg_match ('/^\:[\s]*[a-zA-Z_]{1}[\w]*\z/', $return_type = trim (substr ($code, $args_end, strpos ($code, '{', $args_end) - $args_end))))
+                                $item->description .= $return_type;
                         }
 
                         # Если имени нет - это анонимная функция
@@ -300,6 +315,9 @@ class ModuleParser
 
                         # Очищаем стек ключевых слов чтобы не смешивать их с разными структурами
                         $keywords_stack = array ();
+
+                        # Переносим указатель на конец аргументов
+                        $i = $args_end - 1;
                     }
 
                     # Обработка классов и лямбда-классов
@@ -307,9 +325,33 @@ class ModuleParser
                     {
                         # Парсим имя класса
                         $name = trim (substr ($code, $i += 5, strpos ($code, '{', $i) - $i));
+
+                        # Стек символов слова new
+                        $new_stack = array ('n', 'e', 'w');
+                        $new_begin = false;
+
+                        # Проходим по всем символам текста в обратном порядке
+                        for ($j = $i - 6; $j > -1; --$j)
+                            if (trim ($code[$j]) != '') // Если это символ текста
+                            {
+                                # Если он подходит под конструкцию new - забираем его
+                                if (end ($new_stack) == $code[$j])
+                                    array_pop ($new_stack);
+
+                                # Иначе закрываем поиск
+                                else break;
+
+                                # Если стек опустел - мы нашли ключевое слово new
+                                if (sizeof ($new_stack) == 0)
+                                {
+                                    $new_begin = $j;
+
+                                    break;
+                                }
+                            }
                         
-                        # Если у класса есть имя - он не анонимный
-                        if ($name)
+                        # Если у класса есть имя и мы не нашли ключевое слово new - он не анонимный
+                        if ($name && !$new_begin)
                         {
                             # Добавляем новый Item в стек и записываем в него информацию о классе
                             $items_stack[] = new Item;
@@ -318,6 +360,7 @@ class ModuleParser
                             $item->type  = 'class';
                             $item->begin = $i - 5; // В строчке с поиском $name мы увеличили $i на 5
                             $item->description = trim (implode (' ', $keywords_stack) .' class '. $name);
+                            $item->keywords    = $keywords_stack;
                             
                             /**
                              * Обрезаем из названия класса extends и implements
@@ -331,7 +374,7 @@ class ModuleParser
                             $item->name = $name[0];
                         }
                         
-                        # Если имени нет - это анонимный класс
+                        # Если имени нет и есть ключевое слово new - это анонимный класс
                         # new class {}
                         elseif (self::$parse_lambda_classes)
                         {
@@ -339,7 +382,7 @@ class ModuleParser
                             $item = end ($items_stack);
 
                             $item->type  = 'lambda_class';
-                            $item->begin = $i - 5; // В строчке с поиском $name мы увеличили $i на 5
+                            $item->begin = $new_begin;
                             $item->name  = '<lambda class @ '. $item->begin .'>';
                             $item->description = 'new class';
                         }

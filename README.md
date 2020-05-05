@@ -145,10 +145,10 @@ TEST2;
      | function __construct ($onwer = nil, $init = true, $self = nil)
      | public function __initComponentInfo ()
      +---+
-         | function ()
-         | function ()
-         | function ()
-         | function ()
+         | function () use ($obj)
+         | function () use ($obj)
+         | function () use ($obj)
+         | function () use ($obj)
      +---+
  +---+
  | function ()
