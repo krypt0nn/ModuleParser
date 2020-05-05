@@ -179,4 +179,17 @@ TEST2;
  +---+
 ```
 
+## Известные проблемы
+- [ ] Возможно использование многострочных комментариев для сбивания алгоритма
+
+```php
+<?php
+
+public /* 1 */ function /* 2 */ example /* 3 */ (/* 4 */)
+{
+	// do something
+}
+
+```
+
 Автор: [Подвирный Никита](https://vk.com/technomindlp). Специально для [Enfesto Studio Group](https://vk.com/hphp_convertation) и [Every Software](https://vk.com/evsoft)

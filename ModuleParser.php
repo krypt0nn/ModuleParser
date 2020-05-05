@@ -72,7 +72,7 @@ class ModuleParser
 
     # Список ключевых слов для функций и классов
     public static $keywords = array (
-        'public', 'static', 'final', 'abstract'
+        'public', 'static', 'final', 'abstract', 'private', 'protected'
     );
 
     /**
@@ -194,7 +194,49 @@ class ModuleParser
                     {
                         # Парсим имя и аргументы функции
                         $name = trim (substr ($code, $i += 8, ($args_begin = strpos ($code, '(', $i)) - $i));
-                        $args = str_replace (array ("\n", "\r"), '', substr ($code, $args_begin, ($args_end = strpos ($code, ')', $args_begin)) - $args_begin + 1));
+
+                        # Отмечаем начальную позицию поиска конца аргументов
+                        # Идея простая: идёт пока не найдём ")", который не входит в строку
+                        # так как может быть вариант function example ($t = ')') {...}
+                        $args_end = $args_begin + 1;
+                        $args_codebreak = null;
+
+                        # Проходим по всем потенциальным символам текста
+                        while ($args_end < $length)
+                        {
+                            # Если текущий символ является строковым (' или ") - открываем или закрываем строку
+                            if (in_array ($code[$args_end], $codebreaks) && (($args_codebreak !== null && $args_codebreak == $code[$args_end]) || $args_codebreak === null))
+                            {
+                                $shield = false;
+
+                                for ($k = $args_end - 1; $code[$k] == '\\'; --$k)
+                                    $shield = !$shield;
+
+                                # Исключаем экранированные символы
+                                if (!$shield)
+                                    $args_codebreak = $args_codebreak === null ? $code[$args_end] : null;
+                            }
+
+                            # Если мы не находимся внутри строки и упёрлись в закрывающую скобку - значит это конец списка аргументов
+                            if ($args_codebreak == null && $code[$args_end] == ')')
+                                break;
+
+                            ++$args_end;
+                        }
+
+                        # Вырезаем из кода аргументы и удаляем переходы на новую строку, чтобы всё было красиво
+                        $args = str_replace (array ("\n", "\r"), '', substr ($code, $args_begin, $args_end - $args_begin + 1));
+
+                        # Если у функции имеется конструкция use (...)
+                        # function example (...) use (...) {...}
+                        if (($use_begin = strpos ($code, 'use', $args_end)) !== false && trim (substr ($code, $args_end + 1, $use_begin - $args_end - 1)) == '')
+                        {
+                            # Парсим начало и конец аргументов структуры и дополняем список аргументов
+                            $use_begin = strpos ($code, '(', $use_begin);
+                            $use_end   = strpos ($code, ')', $use_begin);
+
+                            $args .= ' use '. substr ($code, $use_begin, $use_end - $use_begin + 1);
+                        }
 
                         # Если у функции есть имя - она не анонимная
                         if ($name)
