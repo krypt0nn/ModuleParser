@@ -141,7 +141,13 @@ class ModuleParser
             {
                 # Пропускаем комментарии (//, # и /* */)
                 if ($i < $length - 1 && ($code[$i] == '/' || $code[$i] == '#'))
+				{
                     $i = strpos ($code, $code[$i + 1] == '*' ? '*/' : "\n", $i + 1);
+					
+					# Если мы не смогли найти конец комментария
+					if ($i === false)
+						break; // Выходим из цикла и завершаем работу алгоритма
+				}
 
                 # Пропускаем heredoc и nowdoc (https://www.php.net/manual/ru/language.types.string.php)
                 if ($i < $length - 2 && substr ($code, $i, 3) == '<<<')
@@ -150,7 +156,14 @@ class ModuleParser
 
                     $token = trim (trim (substr ($code, $i, strpos ($code, "\n", $i) - $i)), '\'');
                     
-                    $i = strpos ($code, "\n$token;", $i) + strlen ($token);
+                    $i = strpos ($code, "\n$token;", $i);
+					
+					# Если мы не смогли найти конец heredoc или nowdoc
+					if ($i === false)
+						break; // Выходим из цикла и завершаем работу алгоритма
+					
+					# Иначе - пропускаем некоторые символы для оптимизации парсера
+					else $i += strlen ($token);
                 }
 
                 # Если найден { - увеличиваем счётчик points текущего Item на 1
