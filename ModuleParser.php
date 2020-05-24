@@ -39,19 +39,26 @@ namespace ModuleParser;
  * @var int $begin          - индекс начала структуры (начиная с первого ключевого слова будь то public/function или т.п.)
  * @var int $end            - индекс конца структуры (закрывающая фигурная скобка или точка с запятой в абстрактных функциях)
  * 
- * [@var array $subitems = array ()] - вложенные в структуру элементы (для классов - функции, для функций - анонимные функции и т.п.)
- * [@var array $keywords = array ()] - ключевые слова, предшествующие данной структуре (public function ... - array (public))
- * [@var int $points = 0]            - системная переменная. Не используется на практике
+ * [@var string|null $return_type = null] - тип возвращаемого (лямбда-) функцией значения
+ * 
+ * [@var array $subitems  = array ()] - вложенные в структуру элементы (для классов - функции, для функций - анонимные функции и т.п.)
+ * [@var array $keywords  = array ()] - ключевые слова, предшествующие данной структуре (public function ... - array (public))
+ * [@var array $arguments = array ()] - аргументы, входящие в (лямбда-) функцию (function [example] ($a, $b, $c = 123) - ["$a", "$b", "$c = 123"])
+ * 
+ * [@var int $points = 0] - системная переменная. Не используется на практике
  */
-final class Item
+class Item
 {
     public $type;
     public $name;
     public $description;
     public $begin;
     public $end;
-    public $subitems = array ();
-    public $keywords = array ();
+    public $return_type = null;
+
+    public $subitems  = array ();
+    public $keywords  = array ();
+    public $arguments = array ();
 
     public $points = 0;
 }
@@ -216,6 +223,9 @@ class ModuleParser
                         $args_end = $args_begin + 1;
                         $args_codebreak = null;
 
+                        $args_list = array (''); // Будущий параметр ->arguments
+                        $args_pos  = 0; // Указатель на позицию текущего аргумента в списке
+
                         # Проходим по всем потенциальным символам текста
                         while ($args_end < $length)
                         {
@@ -232,15 +242,35 @@ class ModuleParser
                                     $args_codebreak = $args_codebreak === null ? $code[$args_end] : null;
                             }
 
-                            # Если мы не находимся внутри строки и упёрлись в закрывающую скобку - значит это конец списка аргументов
-                            if ($args_codebreak == null && $code[$args_end] == ')')
-                                break;
+                            # Если мы не находимся внутри строки
+                            if ($args_codebreak == null)
+                            {
+                                # Если это запятая - значит мы перешли к следующему аргументу
+                                if ($code[$args_end] == ',')
+                                    $args_list[++$args_pos] = '';
+                                
+                                # Если мы упёрлись в закрывающую скобку - значит это конец списка аргументов
+                                elseif ($code[$args_end] == ')')
+                                {
+                                    # Если последний аргумент в списке пустой - удаляем его
+                                    if ($args_list[$args_pos] == '')
+                                        unset ($args_list[$args_pos]);
+
+                                    break;
+                                }
+                            }
+
+                            if ($args_list[$args_pos] != '' || $code[$args_end] != ',')
+                                $args_list[$args_pos] .= $code[$args_end];
 
                             ++$args_end;
                         }
 
-                        # Вырезаем из кода аргументы и удаляем переходы на новую строку, чтобы всё было красиво
-                        $args = str_replace (array ("\n", "\r"), '', substr ($code, $args_begin, $args_end - $args_begin + 1));
+                        # Удаляем лишние whitespace символы
+                        $args_list = array_map ('trim', $args_list);
+
+                        # Реконструируем список аргументов и удаляем переходы на новую строку, чтобы всё было красиво
+                        $args = '('. str_replace (array ("\n", "\r"), '', implode (', ', $args_list)) .')'; // substr ($code, $args_begin, $args_end - $args_begin + 1)
 
                         # Если у функции имеется конструкция use (...)
                         # function example (...) use (...) {...}
@@ -264,8 +294,10 @@ class ModuleParser
                             $item->type  = 'function';
                             $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = $name;
+
                             $item->description = trim (implode (' ', $keywords_stack) .' function '. $name .' '. $args);
                             $item->keywords    = $keywords_stack;
+                            $item->arguments   = $args_list;
 
                             /**
                              * Если после аргументов функции идёт точка с запятой - очевидно, что алгоритм
@@ -290,7 +322,14 @@ class ModuleParser
 
                                 # Если у функции есть возвращаемый тип - дополняем её описание
                                 if ($return_type != '')
-                                    $item->description .= $return_type;
+                                {
+                                    # Удаляем двоеточие чтобы корректно отобразить синтаксис
+                                    $return_type = ltrim (substr ($return_type, 1));
+
+                                    # Дополняем описание и сохраняем возвращаемый тип
+                                    $item->description .= ': '. $return_type;
+                                    $item->return_type  = $return_type;
+                                }
 
                                 $items[] = $item;
                                 array_pop ($items_stack);
@@ -304,7 +343,14 @@ class ModuleParser
 
                             # Если это обычная-преобычная функция, но у неё есть возвращаемый тип - дописываем его к описанию
                             elseif (preg_match ('/^\:[\s]*[a-zA-Z_]{1}[\w]*\z/', $return_type = trim (substr ($code, $args_end, strpos ($code, '{', $args_end) - $args_end))))
-                                $item->description .= $return_type;
+                            {
+                                # Удаляем двоеточие чтобы корректно отобразить синтаксис
+                                $return_type = ltrim (substr ($return_type, 1));
+
+                                # Дополняем описание и сохраняем возвращаемый тип
+                                $item->description .= ': '. $return_type;
+                                $item->return_type  = $return_type;
+                            }
                         }
 
                         # Если имени нет - это анонимная функция
@@ -317,7 +363,19 @@ class ModuleParser
                             $item->type  = 'lambda_function';
                             $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = '<lambda function @ '. $item->begin .'>'; // В качестве имени я использую конструкцию <lambda ... @ начало структуры>
+                            
                             $item->description = 'function '. $args;
+                            $item->arguments   = $args_list;
+
+                            if (preg_match ('/^\:[\s]*[a-zA-Z_]{1}[\w]*\z/', $return_type = trim (substr ($code, $args_end += 1, strpos ($code, '{', $args_end) - $args_end))))
+                            {
+                                # Удаляем двоеточие чтобы корректно отобразить синтаксис
+                                $return_type = ltrim (substr ($return_type, 1));
+
+                                # Дополняем описание и сохраняем возвращаемый тип
+                                $item->description .= ': '. $return_type;
+                                $item->return_type  = $return_type;
+                            }
                         }
 
                         // echo ' [@] function '. $item->name . PHP_EOL;
