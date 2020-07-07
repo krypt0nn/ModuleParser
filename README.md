@@ -178,40 +178,40 @@ TEST2;
 ```
  | final class TMultiButton extends TLabel
  +---+
-     | function __construct ($onwer = nil, $init = true, $self = nil)
-     | public function __initComponentInfo ()
+     | function __construct($onwer = nil, $init = true, $self = nil)
+     | public function __initComponentInfo()
      +---+
-         | function () use ($obj)
-         | function () use ($obj)
-         | function () use ($obj)
-         | function () use ($obj)
+         | function() use ($obj)
+         | function() use ($obj)
+         | function() use ($obj)
+         | function() use ($obj)
      +---+
  +---+
  | function ()
  | new class
  +---+
-     | public static function test ()
+     | public static function test()
      +---+
          | function ()
          +---+
              | new class
              +---+
-                 | public static function test ()
+                 | public static function test()
                  +---+
-                     | function ()
+                     | function()
                  +---+
              +---+
          +---+
      +---+
  +---+
- | function test1 ()
+ | function test1()
  | interface test2
  +---+
-     | public static function test ($a, $b, $c)
+     | public static function test($a, $b, $c)
  +---+
  | trait example
  +---+
-     | public static function test ($a, $b, $c)
+     | public static function test($a, $b, $c)
  +---+
 ```
 
