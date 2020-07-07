@@ -8,7 +8,7 @@
  * 
  * @package     ModuleParser
  * @copyright   2020 Podvirnyy Nikita (Observer KRypt0n_)
- * @license     GNU GPLv3 <https://www.gnu.org/licenses/gpl-3.0.html>
+ * @license     GNU GPL-3.0 <https://www.gnu.org/licenses/gpl-3.0.html>
  * @author      Podvirnyy Nikita (Observer KRypt0n_)
  * 
  * Contacts:
@@ -34,10 +34,16 @@ namespace ModuleParser;
  * * interface          - интерфейс         interface example {...}
  * * trait              - трейт             trait example {...}
  * 
- * @var string $name        - название структуры (имя класса, функции, трейта и т.п.)
- * @var string $description - описание структуры (полный текст имени, к примеру - public static function test ($a, $b))
- * @var int $begin          - индекс начала структуры (начиная с первого ключевого слова будь то public/function или т.п.)
- * @var int $end            - индекс конца структуры (закрывающая фигурная скобка или точка с запятой в абстрактных функциях)
+ * @var string $name            - название структуры (имя класса, функции, трейта и т.п.)
+ * @var string $description     - описание структуры (полный текст имени, к примеру - public static function test ($a, $b))
+ * @var int $begin              - индекс начала структуры (начиная с первого ключевого слова, будь то public/function или т.п.)
+ * @var int|null $bracket_begin - индекс начала кода структуры (открывающая фигурная скобка; null если её нет)
+ * @var int $end                - индекс конца структуры (закрывающая фигурная скобка или точка с запятой в абстрактных функциях)
+ * @var string|null $code       - код структуры от открывающей до закрывающей фигурной скобки (null если у структуры нет кода)
+ * @var string $definition      - полный код объявления структуры от begin до end
+ * 
+ * * Примечание: код структуры и её объявление автоматически приводится к наименьшей высоте кода
+ *   то есть удаляется вся лишняя табуляция и пробелы
  * 
  * [@var string|null $return_type = null] - тип возвращаемого (лямбда-) функцией значения
  * 
@@ -53,7 +59,10 @@ class Item
     public $name;
     public $description;
     public $begin;
+    public $bracket_begin;
     public $end;
+    public $code;
+    public $definition;
     public $return_type = null;
 
     public $subitems  = array ();
@@ -83,6 +92,9 @@ class ModuleParser
     public static $keywords = array (
         'public', 'static', 'final', 'abstract', 'private', 'protected'
     );
+
+    # Количество пробелов, соразмерных с одним табом
+    public static $tab_weight = 4;
 
     /**
      * Парсинг модулей
@@ -170,12 +182,17 @@ class ModuleParser
 						break; // Выходим из цикла и завершаем работу алгоритма
 					
 					# Иначе - пропускаем некоторые символы для оптимизации парсера
-					else $i += strlen ($token);
+					$i += strlen ($token);
                 }
 
                 # Если найден { - увеличиваем счётчик points текущего Item на 1
                 if ($code[$i] == '{' && $item !== false)
+                {
                     ++$item->points;
+
+                    if ($item->points == 1 && !isset ($item->bracket_begin))
+                        $item->bracket_begin = $i;
+                }
 
                 # Если найден } - уменьшаем счётчик points текущего Item на 1
                 # Всё это нужно для обработки правильной скобочной последовательности, чтобы корректно найти начало и конец структуры
@@ -188,6 +205,59 @@ class ModuleParser
                     if ($item->points == 0 && $item->name)
                     {
                         $item->end = $i;
+
+                        # Получение кода объявления модуля
+                        $item->definition = substr ($code, $item->begin, $item->end - $item->begin + 1);
+                        $item->code = substr ($code, $item->bracket_begin + 1, $item->end - $item->bracket_begin - 1);
+                        
+                        # Поиск отступа кода от начала строки
+                        # Логично, что отступом кода является минимальная высота
+                        # табуляции на отрезке этого кода
+                        $offset = null;
+
+                        foreach (explode ("\n", $item->definition) as $id => $line)
+                            if ($id > 0 && trim ($line) != '')
+                            {
+                                $len = strlen ($line);
+                                $current_offset = 0;
+
+                                for ($j = 0; $j < $len; ++$j)
+                                    if ($line[$j] == ' ')
+                                        ++$current_offset;
+
+                                    elseif ($line[$j] == "\t")
+                                        $current_offset += self::$tab_weight;
+
+                                    else break;
+                                
+                                $offset = $offset === null ?
+                                    $current_offset : min ($offset, $current_offset);
+                            }
+
+                        # Если отступ с новой строки - удаляем его
+                        if ($offset !== null)
+                        {
+                            $processor = function ($line) use ($offset)
+                            {
+                                $len = strlen ($line);
+
+                                for ($i = 0, $j = $offset; $i < $len && $j > 0; ++$i)
+                                {
+                                    if ($line[$i] == ' ')
+                                        --$j;
+
+                                    elseif ($line[$i] == "\t")
+                                        $j -= self::$tab_weight;
+                                        
+                                    else break;
+                                }
+
+                                return ($j < 0 ? str_repeat (' ', -$j) : '') . substr ($line, $i);
+                            };
+
+                            $item->definition = implode ("\n", array_map ($processor, explode ("\n", $item->definition)));
+                            $item->code = implode ("\n", array_map ($processor, explode ("\n", $item->code)));
+                        }
 
                         # А если мы ранее находили структуры, которые по началу и концу входят в текущую - добавляем их в subitems текущей структуры
                         foreach ($items as $id => $nitem)
@@ -295,7 +365,7 @@ class ModuleParser
                             $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = $name;
 
-                            $item->description = trim (implode (' ', $keywords_stack) .' function '. $name .' '. $args);
+                            $item->description = trim (implode (' ', $keywords_stack) .' function '. $name . $args);
                             $item->keywords    = $keywords_stack;
                             $item->arguments   = $args_list;
 
@@ -331,6 +401,10 @@ class ModuleParser
                                     $item->return_type  = $return_type;
                                 }
 
+                                # Заполняем поле definition
+                                $item->definition = $item->description .';';
+
+                                # Закидываем структуру в стек структур
                                 $items[] = $item;
                                 array_pop ($items_stack);
 
@@ -364,7 +438,7 @@ class ModuleParser
                             $item->begin = $i - 8; // В строчке с поиском $name мы увеличили $i на 8
                             $item->name  = '<lambda function @ '. $item->begin .'>'; // В качестве имени я использую конструкцию <lambda ... @ начало структуры>
                             
-                            $item->description = 'function '. $args;
+                            $item->description = 'function'. $args;
                             $item->arguments   = $args_list;
 
                             if (preg_match ('/^\:[\s]*[a-zA-Z_]{1}[\w]*\z/', $return_type = trim (substr ($code, $args_end += 1, strpos ($code, '{', $args_end) - $args_end))))
