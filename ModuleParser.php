@@ -247,7 +247,7 @@ class ModuleParser
                                         --$j;
 
                                     elseif ($line[$i] == "\t")
-                                        $j -= self::$tab_weight;
+                                        $j -= ModuleParser::$tab_weight;
                                         
                                     else break;
                                 }
